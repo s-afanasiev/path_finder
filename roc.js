@@ -81,6 +81,7 @@ function trim_matr_by_max_aims(BIN_MATR, MAX_AIMS) {
 
 function fast_exit(BIN_MATR, MAX_AIMS, MATR_H)
 {
+    console.log(convert_to_string(BIN_MATR));
     let result = {};
     GOB.MAX_AIMS = MAX_AIMS;
     // * ESTIMATE matrix width from matr
@@ -471,7 +472,7 @@ function solve_one_dot(arg)
         //console.log("2) AIM IS BUSY. NEW AIM IS:", arg.dot_.loc.dest);
     }
 
-    let args = { dot_: arg.dot_,  paths_matr: arg.paths_matr, ord_matr:arg.ord_matr, pocket: arg.pocket,  in_col_dots: arg.in_col_dots,  dots_same_side: arg.dots_same_side,  mid_xc: arg.mid_xc,  next_aim_ord: arg.dot_.loc.dest, }
+    let args = { dot_: arg.dot_,  paths_matr: arg.paths_matr, ord_matr:arg.ord_matr, pocket: arg.pocket,  in_col_dots: arg.in_col_dots,  dots_same_side: arg.dots_same_side,  mid_xc: arg.mid_xc }
     let path_obj = find_dot_path(args);
     path = path_obj.path;
 
@@ -481,7 +482,7 @@ function solve_one_dot(arg)
 
 function find_dot_path(args)
 {
-    // * args = {  dot_: {},  paths_matr: [[],[]], ord_matr: [[],[]], pocket: {},  in_col_dots: [],  dots_same_side: [],  mid_xc: 6,  next_aim_ord: 3 }
+    // * args = {  dot_: {},  paths_matr: [[],[]], ord_matr: [[],[]], pocket: {},  in_col_dots: [],  dots_same_side: [],  mid_xc: 6 }
     let path_obj = {};
     path_obj.path = [];
 
@@ -503,6 +504,7 @@ function find_dot_path(args)
     // * means that the DOT moved to the depth of the grid to get around the obstacle and could block some dots which not arrived yet
     if (vert_path_to_track.msg == "shift_aim")
     {
+
         // * reserving AIM, adding spec property. Now DOTs will look for this prop and ask can it welcome
         //args.pocket.aims_[side][args.dot_.loc.dest].reserved = vert_path_to_track.res.reserved;
         args.pocket.aims_[side][args.dot_.loc.dest].reserved = vert_path_to_track.res.reserved;
@@ -511,43 +513,41 @@ function find_dot_path(args)
         let dot_vdir = get_dot_vdir( {dot_: args.dot_, pocket: args.pocket} );
         //console.log("5.2) count=", vert_path_to_track.res.count);
 
-        args.next_aim_ord_prev = args.dot_.loc.dest;
+        args.dot_.loc.dest_prev = args.dot_.loc.dest;
         if (dot_vdir == "down")
-            args.next_aim_ord = args.next_aim_ord + vert_path_to_track.res.count;
+            args.dot_.loc.dest = args.dot_.loc.dest + vert_path_to_track.res.count;
         else
-            args.next_aim_ord = args.next_aim_ord - vert_path_to_track.res.count;
+            args.dot_.loc.dest = args.dot_.loc.dest - vert_path_to_track.res.count;
 
-        if ( (args.next_aim_ord == 0) || (args.next_aim_ord == GOB.MAX_AIMS/2 ) ) {
+        if (args.dot_.loc.dest == 0) {
             // * TODO: if we wanted to concede an Aim based on the principle of mini-matrices, but went beyond the numbering of Aims
             // * intuitively, it seems that this can lead to unpredictable results, because we have mixed two different strategies
-            if (args.next_aim_ord == 0) args.next_aim_ord = 1;
-            else if (args.next_aim_ord == GOB.MAX_AIMS/2) args.next_aim_ord = GOB.MAX_AIMS/2;
-
+            args.dot_.loc.dest = 1;
             // * so, if a Dot went to a Aim and then had to give up that Aim to another Dot, but this Aim was First or Last in pocket, then mark this Aim not suitable for this Dot and let's find another Aim for this Dot.
-            args.pocket.aims_[side][args.next_aim_ord].not_suitable_for = [];
-            args.pocket.aims_[side][args.next_aim_ord].not_suitable_for.push(args.dot_.ord);
+            args.pocket.aims_[side][args.dot_.loc.dest].not_suitable_for = [];
+            args.pocket.aims_[side][args.dot_.loc.dest].not_suitable_for.push(args.dot_.ord);
 
-            args.next_aim_ord = find_next_free_aim( { dot_: args.dot_,  pocket: args.pocket } );
+            args.dot_.loc.dest = find_next_free_aim( { dot_: args.dot_,  pocket: args.pocket } );
         }
-        else if ( (args.next_aim_ord < 0) || (args.next_aim_ord > GOB.MAX_AIMS/2 ) )
+        else if ( (args.dot_.loc.dest < 0) || (args.dot_.loc.dest > GOB.MAX_AIMS/2 ) )
         {
             // * It means that, probably, more than one dot were catched by mini-matrix
-            if (args.next_aim_ord < 0) {
+            if (args.dot_.loc.dest < 0) {
                 let passed_count = vert_path_to_track.res.count;
-                for (let i = args.next_aim_ord_prev; i > 0; i--) {
+                for (let i = args.dot_.loc.dest_prev; i > 0; i--) {
                     ////console.log("!!!TODO!!!", i);
                     args.pocket.aims_[side][i].not_suitable_for = [];
                     args.pocket.aims_[side][i].not_suitable_for.push(args.dot_.ord);
-                    args.next_aim_ord = find_next_free_aim( { dot_: args.dot_,  pocket: args.pocket } );
+                    args.dot_.loc.dest = find_next_free_aim( { dot_: args.dot_,  pocket: args.pocket } );
                 }
             }
-            else if (args.next_aim_ord > GOB.MAX_AIMS/2) {
+            else if (args.dot_.loc.dest > GOB.MAX_AIMS/2) {
                 let passed_count = vert_path_to_track.res.count;
-                for (let i = args.next_aim_ord_prev; i <= GOB.MAX_AIMS/2; i++) {
+                for (let i = args.dot_.loc.dest_prev; i <= GOB.MAX_AIMS/2; i++) {
                     //console.log("!!!TODO!!!", i);
                     args.pocket.aims_[side][i].not_suitable_for = [];
                     args.pocket.aims_[side][i].not_suitable_for.push(args.dot_.ord);
-                    args.next_aim_ord = find_next_free_aim( { dot_: args.dot_,  pocket: args.pocket } );
+                    args.dot_.loc.dest = find_next_free_aim( { dot_: args.dot_,  pocket: args.pocket } );
                 }
             }
 
@@ -556,10 +556,8 @@ function find_dot_path(args)
             // * WE MUST MARk All the Aims, which were passed, as 'not_suitable_for', as example below
         }
         // * chage DOT property, which instruct the point where it should GO
-        args.dot_.loc.dest = args.next_aim_ord; // ? same like line above ?
         args.overlap_once = false;
-        //console.log("5.2) next_aim_ord=", args.next_aim_ord);
-        ////console.log("3) ffp: args pass2=", JSON.stringify(args));
+
         vert_path_to_track = find_vert_path_to_track(args);
         //console.log("6) vert_path_to_track next pass2=", vert_path_to_track);
     }
@@ -610,10 +608,9 @@ function get_dot_vdir(arg)
 function find_vert_path_to_track(arg)
 {
     // * arg = {path: path, dot_: arg.dot_, paths_matr: arg.paths_matr, pocket: arg.pocket, in_col_dots: [y7,y4,y2], dots_same_side: [y7], mid_xc: 6 }
-    // * also may be property: 'next_aim_ord' and maybe 'mm_strat' = true
+    // * also may be property: 'dot_.loc.dest' and maybe 'mm_strat' = true
     // * adds vertical part of the path which taxi to aim track
-    let pref = (arg.overlap_once) ? ("3.") : ("6.") ;
-
+    console.log("DOT=", JSON.stringify(arg.dot_));
     let poss_path_part = {};
 
     //if (arg.h_dir) {}
@@ -622,7 +619,6 @@ function find_vert_path_to_track(arg)
         in_col_dots: arg.in_col_dots, // count of all dots in current column
         dots_same_side: arg.dots_same_side, // from them, those that intended to the same side
         dot_: arg.dot_, // {xc:5, yc:0, id:1200, side:"left"}
-        next_aim_ord: arg.next_aim_ord, // 3
         pocket: arg.pocket, // {}
         paths_matr: arg.paths_matr, // [[],[]]
     };
@@ -648,7 +644,6 @@ function find_vert_path_to_track(arg)
         //console.log(pref,"SHIFTING TO DEPTH");
 
         // * -----------INIT SHIFT IN DEPTH ----------------
-        // * init_depth_shift() - is the Antonym function for get_vdir_and_init_shift()
         //arg.shift = init_depth_shift(args);
         // * simplified shift initializationin depth: drop shift to first cell by XC in depth after the dot position. Different for the left and right sides.
         arg.shift = (arg.dot_.side == "left") ? (1) : (-1) ;
@@ -656,7 +651,6 @@ function find_vert_path_to_track(arg)
 
         arg.h_dir = "depth";
         // * Now make recursively finding the good vert path moving by depth
-        //recursive_shifter_in_depth(arg);
         recursive_shifter(arg);
         //console.log(pref, "shift=",  arg.shift);
         //console.log(pref, "poss_path_part=", poss_path_part.res);
@@ -861,7 +855,7 @@ function find_vert_path_to_track(arg)
         // * now check if shift exist, but we already on edge, then we are shit in pants
 
         // * if not undefined order number of concrete aim, where current dot must be pass
-        //if (arg.next_aim_ord) {        }
+        //if (arg.dot_.loc.dest) {        }
         // * how much of dots are present above current dot in current column.
         //let dots_above = arg.in_col_dots.length - arg.in_col_dots.indexOf(arg.dot_.yc) - 1;
         // * desired shift is such, that he is depend on how much dots are present above current dot in current column
@@ -876,13 +870,13 @@ function find_vert_path_to_track(arg)
     // * this function calculate optimal dot vertical path shift depend on how much other dots are present in this column and where they want to go
     function get_vdir_and_init_shift(arg)
     {
-        // * arg = { in_col_dots: [y7,y4,y2], dots_same_side: [y7], dot_: {xc:7, yc:0, id: 1200, side: 'left'}, next_aim_ord: 3, pocket: {aim_objs_2: {left: {3: {who_join: 2, vec_vals:[3,4]} } } }, paths_matr: [[],[]] }
+        // * arg = { in_col_dots: [y7,y4,y2], dots_same_side: [y7], dot_: {xc:7, yc:0, id: 1200, side: 'left'}, pocket: {aim_objs_2: {left: {3: {who_join: 2, vec_vals:[3,4]} } } }, paths_matr: [[],[]] }
         // * 'init shift' - calculate initial shift based on how much dots are present in same column, which force to make shift beforehand
         let res = {};
         res.shift = 0;
         let side = arg.dot_.side;
-        let target_aim = (arg.next_aim_ord) ? (arg.next_aim_ord) : (arg.dot_.loc.dest) ;
-        //console.log("next_aim_ord=",arg.next_aim_ord, ", dest=", arg.dot_.loc.dest);
+        let target_aim = arg.dot_.loc.dest ;
+        console.log("target_aim",target_aim);
         let vec_vals = arg.pocket.aims_[side][target_aim].vec_vals;
         res.v_dir = "none"; // * "none" || "up" || "down"
         // * it the same check that dot is on the track line with the aim
@@ -962,7 +956,7 @@ function find_vert_path_to_track(arg)
         // * now check if shift exist, but we already on edge, then we are shit in pants
 
         // * if not undefined order number of concrete aim, where current dot must be pass
-        //if (arg.next_aim_ord) {        }
+        //if (arg.dot_.loc.dest) {        }
         // * how much of dots are present above current dot in current column.
         //let dots_above = arg.in_col_dots.length - arg.in_col_dots.indexOf(arg.dot_.yc) - 1;
         // * desired shift is such, that he is depend on how much dots are present above current dot in current column
@@ -983,7 +977,7 @@ function find_vert_path_to_track(arg)
             ////console.log("h_dir=",arg.h_dir);
         }
 
-        poss_path_part.res = add_vert_path_part_depend_on_pos({ path: arg.path, dot_: arg.dot_, paths_matr: arg.paths_matr, pocket: arg.pocket, shift: arg.shift, v_dir: arg.v_dir, next_aim_ord: arg.next_aim_ord});
+        poss_path_part.res = add_vert_path_part_depend_on_pos({ path: arg.path, dot_: arg.dot_, paths_matr: arg.paths_matr, pocket: arg.pocket, shift: arg.shift, v_dir: arg.v_dir});
         ////console.log("irs: poss_path_part=", poss_path_part.res);
 
         // * if moving in depth and have big shift, we must check column with XC = (dot_pos+shift-1)
@@ -1071,7 +1065,8 @@ function find_vert_path_to_track(arg)
         else if (arg.dot_.loc.rel == "target_set")
         {
             let side = arg.dot_.side;
-            let vv = arg.pocket.aims_[side][arg.next_aim_ord].vec_vals;
+            let vv = arg.pocket.aims_[side][arg.dot_.loc.dest].vec_vals;
+            //next_aim_ord
             let start_path = YC, step = 0;
             // * previous aim that was the dest to current dot was busy, so now this newfree aim is exactly not on equal Y coord
             // * move down
@@ -1092,12 +1087,7 @@ function find_vert_path_to_track(arg)
 
         return res;
     }
-
-    function recursive_shifter_in_depth(arg)
-    {
-        // * arg = {}
-        arg.shift = 0 ;
-    }
+    // * END INNER FUNCTIONS
 
 }
 
