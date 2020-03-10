@@ -86,12 +86,10 @@ function fast_exit(BIN_MATR, MAX_AIMS, MATR_H)
     GOB.MAX_AIMS = MAX_AIMS;
     // * ESTIMATE matrix width from matr
     const MATR_W = (BIN_MATR.length > 0) ? BIN_MATR[0].length : null;
-    ////console.log("MATR_W = ", MATR_W);
-    //console.log(convert_to_string(BIN_MATR));
 	// * 1) DISTANCE_ARR = [{id:id, xc:xc, yc:yc},{...},{...}]
 	const DISTANCE_ARR = get_distances_array(BIN_MATR);
 
-    // * clone and sort array. Like DISTANCE_ARR, but sorted by xc
+    // * clone and sort array. Like DISTANCE_ARR, but flat and sorted by xc
     // * then get useful info except empty xc
 	let dist_arr = clone_and_sort_objarr(DISTANCE_ARR);
 	dist_arr = get_useful_from_obj(dist_arr);
@@ -117,21 +115,11 @@ function fast_exit(BIN_MATR, MAX_AIMS, MATR_H)
         result.arr2d = DIST_MATR;
 
         // * paths_kit - is a matrix with size like source binary matrix, containing all paths
-        let paths_kit = get_paths_matr( {dist_matr: DIST_MATR, ids_l: IDS_L, ids_r: IDS_R, matr_h: MATR_H, mid_data: MID_DATA} );
-        result.paths_kit = paths_kit;
-
+        result.paths_kit = get_paths_matr( {dist_matr: DIST_MATR, ids_l: IDS_L, ids_r: IDS_R, matr_h: MATR_H, mid_data: MID_DATA} );
         //console.log(convert_to_string(paths_kit.paths_matr));
     }
 
     return result;
-    // * arr_x_r = {arr = [], sum = 200}
-    //const XCS_L = get_half_array_and_sum(DIST_XCS, 0, MID_DATA.middle_true);
-	//const XCS_R = get_half_array_and_sum(DIST_XCS, MID_DATA.middle_true, DIST_IDS.length, MATR_W);
-	// * break big matr by left and right halfs
-	//const MATR_LR =  break_matr_by_lr( {matr: DIST_MATR, middle: MID_DATA, id_l: IDS_L, id_r: IDS_R} );
-	// * get paths for left and right halfs
-	//let paths_matr_l = get_paths_matr( {half_matr: MATR_LR.left, dist_arr: DISTANCE_ARR} );
-	//let paths_matr_r = get_paths_matr( {half_matr: MATR_LR.right, dist_arr: DISTANCE_ARR} );
 
 }
 
@@ -152,7 +140,7 @@ function convert_to_string(matr){
 
 function get_paths_matr(arg)
 {
-    // arg = { dist_matr: [ [{}], [{}] ], ids_l: [], ids_r: [], matr_h: 10, mid_data:{min_dist, middle_true, true_k} }
+    // arg = { dist_matr: [ [{}], [{}] ], ids_l: [], ids_r: [], matr_h: 10 }
 	// IMPORTANT: x,y coords in "simle numeric matrix" one less than in "distance object matrix"
     const AIM_H = arg.aim_h || 2;
     const ORD_MATR = init_paths_matr(arg);
@@ -162,35 +150,30 @@ function get_paths_matr(arg)
 
 	const POCKET = build_pocket({dist_tool: arg, aim_h: AIM_H});
 
-	////console.log("aims vec left = ",POCKET.aims_vecs.left);
-    ////console.log("aims vec right = ",POCKET.aims_vecs.right);
-    ////console.log("aims obj left = ",JSON.stringify(POCKET.aims_objs.left));
-    ////console.log("aims obj right = ",JSON.stringify(POCKET.aims_objs.right));
-
     // * imagine that we got one dot and execute function which find path for it
     // * path1 = [ [x1,y1], [x2,y2], [x3,y3] ]; PATHS = {path1: [[],[]], path2: [[],[]]}
 	////console.log("======================");
 
     // * little optimization, which make sense to look only on columns contains left or right
-    let mid_xc = get_half_index_of_matr({ord_matr: ORD_MATR, dist_matr: arg.dist_matr });
+    let grid_ = {};
+    grid_.mid_xc = get_half_index_of_matr({ord_matr: ORD_MATR, dist_matr: arg.dist_matr });
 
     // * Now we need to create a more favorable distribution before you start creating paths
     // * this applies especially to those Dots that are more in depth of the grid
-    is_mid_xc_contain_different_dots({ dist_tool: arg, mid_xc: mid_xc});
-    ////console.log("mid_xc = ",mid_xc);
+    grid_.is_mid_dif = is_mid_xc_contain_different_dots({ dist_tool: arg, mid_xc: grid_.mid_xc});
 
     // * we will go by slicing stripes with increasing X axis
     const PATHS = {};
     // * for the left half, the order of columns is served from the first to N
     //for (let col = 0; col <= 1; col++) {
-    for (let col = 0; col <= mid_xc; col++) {
-        let unresolved = solve_one_bar({paths_matr: PATHS_MATR, ord_matr: ORD_MATR, column: col, dist_tool: arg, pocket: POCKET, paths: PATHS, mid_xc: mid_xc, for_side: "left"});
+    for (let col = 0; col <= grid_.mid_xc; col++) {
+        let unresolved = solve_one_bar({paths_matr: PATHS_MATR, ord_matr: ORD_MATR, column: col, dist_tool: arg, pocket: POCKET, paths: PATHS, mid_xc: grid_.mid_xc, for_side: "left"});
         // TODO: if (unresolved) { solve_one_bar_pass2(); }
 	}
     // * for the right half, the order of columns is served from the last decreasing to middle xc
     //for (let col = ORD_MATR[0].length-1; col >= ORD_MATR[0].length-3; col--){
-    for (let col = ORD_MATR[0].length-1; col >= mid_xc; col--){
-        let unresolved = solve_one_bar({paths_matr: PATHS_MATR, ord_matr: ORD_MATR, column: col, dist_tool: arg, pocket: POCKET, paths: PATHS, mid_xc: mid_xc, for_side: "right"});
+    for (let col = ORD_MATR[0].length-1; col >= grid_.mid_xc; col--){
+        let unresolved = solve_one_bar({paths_matr: PATHS_MATR, ord_matr: ORD_MATR, column: col, dist_tool: arg, pocket: POCKET, paths: PATHS, mid_xc: grid_.mid_xc, for_side: "right"});
         // TODO: if (unresolved) { solve_one_bar_pass2(); }
     }
 
@@ -202,18 +185,19 @@ function get_paths_matr(arg)
     function is_mid_xc_contain_different_dots(arg)
     {
         // * arg = dist_tool: {}, mid_xc: 6
-        let col_dots = [];
+        let mid_dots = [];
         for (let row = 0; row < arg.dist_tool.dist_matr.length; row++) {
             let one_dot = arg.dist_tool.dist_matr[row][arg.mid_xc];
-            if (one_dot.yc > -1 ) { col_dots.push(one_dot); }
+            if (one_dot.yc > -1 ) { mid_dots.push(one_dot); }
         }
         // TODO: ADD NEW PROPERTY 'PRE_VDIR' TO DOT OBJECT, BASED ON FACT OF SITUATION, WHEN MANY DOTS ARE ON THE MIDDLE XC AND DOT WHICH IS LOWER MUST GRAVITATE TO LOWER AIM AND VICE VERSA
 
-        if (col_dots.length > 0) {
-            let mid = Math.floor(col_dots.length/2);
-            for (let i = 0; i < mid; i++) { col_dots[i].pre_vdir = "up"; }
-            for (let i = mid; i < col_dots.length; i++) { col_dots[i].pre_vdir = "down"; }
+        if (mid_dots.length > 0) {
+            let mid = Math.floor(mid_dots.length/2);
+            for (let i = 0; i < mid; i++) { mid_dots[i].pre_vdir = "up"; }
+            for (let i = mid; i < mid_dots.length; i++) { mid_dots[i].pre_vdir = "down"; }
         }
+        return mid_dots;
     }
 
     function init_paths_matr(dist_tool){
@@ -369,17 +353,39 @@ function build_pocket(arg)
 //------------------------------------
 function solve_one_bar(arg)
 {
-    // * arg = {paths_matr: [[],[]], ord_matr: [[],[]], column: 1, dist_tool: {dist_matr:[[{}],[{}]], ids_l:[], ids_r:[],..}, pocket: {}, paths: {}, mid_xc: 6}
+    // * arg = {paths_matr: [[],[]], ord_matr: [[],[]], column: 1, dist_tool: {dist_matr:[[{}],[{}]], ids_l:[], ids_r:[],..}, pocket: {}, paths: {}, mid_xc: 6, for_side: "left"}
     let in_col_dots = [], dots_left = [], dots_right = [];
-    // * pass throw all rows in one column and detect dots from lowest YC(max) to upside YC(0)
-    for (let row = arg.ord_matr.length-1; row >=0; row--) {
-    // * pass throw all rows in one column and detect dots from up YC(0) to downside YC(max)
-    //for (let row = 0; row < arg.ord_matr.length; row++) {
+    let vpass = get_col_distrib({column: arg.column, mid_xc: arg.mid_xc, pocket: arg.pocket, dist_tool: arg.dist_tool, for_side: arg.for_side});
 
-        if (arg.ord_matr[row][arg.column] > 0){
-            in_col_dots.push(row);
-            if (arg.dist_tool.dist_matr[row][arg.column].side == "left") dots_left.push(row);
-            else dots_right.push(row);
+    // * pass throw all rows in one column and detect dots from lowest YC(max) to upside YC(0)
+    if (vpass == "downup")
+    {
+        for (let row = arg.ord_matr.length-1; row >=0; row--) {
+        // * pass throw all rows in one column and detect dots from up YC(0) to downside YC(max)
+        //for (let row = 0; row < arg.ord_matr.length; row++) {
+
+            if (arg.ord_matr[row][arg.column] > 0){
+                in_col_dots.push(row);
+                if (arg.dist_tool.dist_matr[row][arg.column].side == "left")
+                    dots_left.push(row);
+                else
+                    dots_right.push(row);
+            }
+        }
+    }
+    else if (vpass == "updown")
+    {
+        //for (let row = arg.ord_matr.length-1; row >=0; row--) {
+        // * pass throw all rows in one column and detect dots from up YC(0) to downside YC(max)
+        for (let row = 0; row < arg.ord_matr.length; row++) {
+
+            if (arg.ord_matr[row][arg.column] > 0){
+                in_col_dots.push(row);
+                if (arg.dist_tool.dist_matr[row][arg.column].side == "left")
+                    dots_left.push(row);
+                else
+                    dots_right.push(row);
+            }
         }
     }
 
@@ -392,20 +398,82 @@ function solve_one_bar(arg)
         // * here we are talking about a column that can contain both left and right DOTS at the same time
         if ( (arg.for_side =="left") && (DOT_OBJ.side == "left") )
         {
-            arg.paths[ ord ] = solve_one_dot({ dot_: DOT_OBJ, ord_matr: arg.ord_matr, paths_matr: arg.paths_matr, pocket: arg.pocket, in_col_dots: in_col_dots, dots_same_side: dots_left, mid_xc: arg.mid_xc, dist_tool: arg.dist_tool});
+            let sod = solve_one_dot({ dot_: DOT_OBJ, ord_matr: arg.ord_matr, paths_matr: arg.paths_matr, pocket: arg.pocket, in_col_dots: in_col_dots, dots_same_side: dots_left, mid_xc: arg.mid_xc, dist_tool: arg.dist_tool});
+            arg.paths[ ord ] = sod.path;
         }
         else if ( (arg.for_side =="right") && (DOT_OBJ.side == "right") )
         {
-            arg.paths[ ord ] = solve_one_dot({ dot_: DOT_OBJ, ord_matr: arg.ord_matr, paths_matr: arg.paths_matr, pocket: arg.pocket, in_col_dots: in_col_dots, dots_same_side: dots_right, mid_xc: arg.mid_xc, dist_tool: arg.dist_tool});
+            let sod = solve_one_dot({ dot_: DOT_OBJ, ord_matr: arg.ord_matr, paths_matr: arg.paths_matr, pocket: arg.pocket, in_col_dots: in_col_dots, dots_same_side: dots_right, mid_xc: arg.mid_xc, dist_tool: arg.dist_tool});
+            arg.paths[ ord ] = sod.path;
         }
 
         // * WRITE to PATHS MATR info about one dot PATH
         add_path_to_paths_matr({ paths_matr: arg.paths_matr, path: arg.paths[ord], ord: ord });
     }
 
+    function get_col_distrib(arg)
+    {
+        // * arg = {column: 3, mid_xc: 6, pocket: {}, dist_tool: {} }
+        let vpass = "downup";
+
+        //let side = (arg.column <= arg.mid_xc) ? ("left") : ("right");
+        let side = arg.for_side;
+
+        let free_aims_sum = 0;
+        let free_aims_counter = 0;
+        // * 1) calc avg of ord numbers of all free aims
+        let aims_ = arg.pocket.aims_[side];
+        for (let i in aims_) {
+            //keys can be: not_suitable_for, who_join, reserved
+            if (aims_[i].who_join == 0) {
+                free_aims_sum += Number(i);
+                free_aims_counter++;
+            }
+        }
+        // * to avoid div by 0
+        if (free_aims_counter == 0) {free_aims_counter = 1}
+        let free_aims_avg = (free_aims_sum / free_aims_counter);
+
+        // * 2) calc avg of tracks ord numbers for which dots in column are nearest
+        let dots_sum = 0;
+        let dots_counter = 0;
+        for (let row in arg.dist_tool.dist_matr) {
+            let dot = arg.dist_tool.dist_matr[row][arg.column];
+            if (dot.ord) {
+                // * FINDING TRACK
+                let dot_track = 0;
+                for (let i in aims_) {
+                    if (aims_[i].vec_vals.indexOf(dot.yc) > -1) {dot_track = Number(i)}
+                }
+                // * IT MEANS DOT IS BETWEEN TRACKS
+                if (dot_track == 0) {
+                    for (let i in aims_) {
+                        if (aims_[i].vec_vals.indexOf(dot.yc-1) > -1) {dot_track = Number(i) + 0.5}
+                    }
+                }
+                console.log("dot_track=", dot_track);
+                dots_sum += dot_track;
+                dots_counter++;
+            }
+        }
+        // * to avoid div by 0
+        if (dots_counter == 0) {dots_counter = 1}
+        let dots_avg = (dots_sum / dots_counter);
+
+        // * 3) biggest will define vert or hor pass of column
+        if (free_aims_avg > dots_avg) vpass = "updown";
+        if (dots_avg > 0) console.log("dots_avg=", dots_avg, ", free_aims_avg=",free_aims_avg, ", vpass=",vpass, ", side=", side);
+
+        return vpass;
+    }
+
 }
 //-------------------------------------
 
+
+//------------------------------------
+// --------- GETTING RESULT ----------
+//------------------------------------
 function add_path_to_paths_matr(arg)
 {
     // * arg = {paths_matr: [[],[]], path = [[x1,y1], [x2,y2]], ord: 3 }
@@ -422,21 +490,19 @@ function add_path_to_paths_matr(arg)
         }
     }
 }
+//-------------------------------------
+
 
 //------------------------------------
 //------------- GET DOT PATH ---------
 //------------------------------------
-function find_next_aim_cause_behind(par1) {
-    //console.log("this is find_next_aim_cause_behind() function",par1);
-}
 
 function FDP_Chainer(arg){
     this.funcs = {
         f1: get_dot_pos_rel_aim,
         f2: check_aim_on_track_busy,
         f3: find_next_free_aim,
-        f4: find_next_aim_cause_behind,
-        f5: find_dot_path,
+        f4: find_dot_path,
     };
     this.all_args = arg;
     this.add_args = function(add_arg) {
@@ -455,14 +521,14 @@ function FDP_Chainer(arg){
 function solve_one_dot(arg)
 {
 	// arg = {dist_tool: { dist_matr: [ [{}], [{}] ], ids_l: [], ids_r: [] }, dot_ord: 5, dot_:{id: 1200, xc: 3, yc: 7}, ord_matr: [[],[]], paths_matr: [[],[]], pocket: { aims_vecs: {left:[], right:[]}, aims_objs: {left:[], right:[]}, in_col_dots: [y7,y4,y2], dots_same_side: [y7], mid_xc: 6, dist_tool:{dist_matr:[], ids_l }
-	let path = [];
+
     GOB.chainer = new FDP_Chainer(arg);
 
     // * arg.dot_.loc ={rel: "on_track" || "between_tracks" || "under_lowest", dest: 3 }
 	arg.dot_.loc = get_dot_pos_rel_aim({ dot_: arg.dot_, pocket: arg.pocket, ord_matr: arg.ord_matr, paths_matr: arg.paths_matr });
 
-    // * if the AIM we want to go to IS FREE
-    let is_aim_busy = check_aim_on_track_busy({pocket: arg.pocket, side: arg.dot_.side, cur_track: arg.dot_.loc.dest });
+    // * if AIM we want to go to IS FREE
+    let is_aim_busy = check_aim_on_track_busy({pocket: arg.pocket, dot_: arg.dot_ });
     if (is_aim_busy)
     {
         // * Note: we introduce new state of dot position relative to track
@@ -473,36 +539,39 @@ function solve_one_dot(arg)
     }
 
     let args = { dot_: arg.dot_,  paths_matr: arg.paths_matr, ord_matr:arg.ord_matr, pocket: arg.pocket,  in_col_dots: arg.in_col_dots,  dots_same_side: arg.dots_same_side,  mid_xc: arg.mid_xc }
-    let path_obj = find_dot_path(args);
-    path = path_obj.path;
+    let dotres = find_dot_path(args);
 
-    return path;
+    return dotres;
 }
 
 
 function find_dot_path(args)
 {
     // * args = {  dot_: {},  paths_matr: [[],[]], ord_matr: [[],[]], pocket: {},  in_col_dots: [],  dots_same_side: [],  mid_xc: 6 }
-    let path_obj = {};
-    path_obj.path = [];
+    // * dot_ = {"id":52,"xc":13,"yc":2,"ord":5,"arrived":false,"side":"right","loc":{"rel":"between_tracks","dest":2}}
+    let dotres = {};
+    args.dot_.path = {};
+    args.dot_.env = {};
+    dotres.path = [];
 
-    args.overlap_once = true;
+    //args.overlap_once = true;
     let side = args.dot_.side;
     ////console.log("3) ffp: args pass1=", JSON.stringify(args));
 
     // * --------- 1. FIRST PART - FIND VERTICAL PATH TO TRACK -----------
-    let vert_path_to_track = find_vert_path_to_track(args);
     // * vert_path_to_track = {msg: "done" || "shift_aim", res: [] || {reserved:[], count: 5} }
-    //console.log("3) ffp: vert_path_to_track pass1=", vert_path_to_track);
+    //let vert_path_to_track = find_vert_path_to_track(args);
+    args.dot_.path.vpart = find_vert_path_to_track(args);
 
-    if (vert_path_to_track.msg == "fail") {
+    if (args.dot_.path.vpart.msg == "fail") {
         //console.log("Can't find DOT Path !");
-        return path_obj;
+        args.dot_.path.msg == "fail vpart";
+        return dotres;
     }
 
     // * if (msg == "shift_aim") then this dot needs to retached to next aim
     // * means that the DOT moved to the depth of the grid to get around the obstacle and could block some dots which not arrived yet
-    if (vert_path_to_track.msg == "shift_aim")
+    if (args.dot_.path.vpart.msg == "shift_aim")
     {
 
         // * reserving AIM, adding spec property. Now DOTs will look for this prop and ask can it welcome
@@ -552,28 +621,26 @@ function find_dot_path(args)
             }
 
 
-            //return path_obj;
+            //return dotres;
             // * WE MUST MARk All the Aims, which were passed, as 'not_suitable_for', as example below
         }
         // * chage DOT property, which instruct the point where it should GO
-        args.overlap_once = false;
+        //args.overlap_once = false;
 
         vert_path_to_track = find_vert_path_to_track(args);
         //console.log("6) vert_path_to_track next pass2=", vert_path_to_track);
     }
 
     // * --------- 2. SECOND PART - FIND HORIZONTAL PATH TO AIM -----------
-    let args_2 = { dot_: args.dot_,  paths_matr: args.paths_matr,  path_part: vert_path_to_track.res  };
+    let args_2 = { dot_: args.dot_,  paths_matr: args.paths_matr,  path_part: args.dot_.path.vpart.res  };
     let hor_path_to_edge = look_edge_line_free(args_2);
     if (hor_path_to_edge.free)
     {
         // * compound full path
-        path_obj.path = path_obj.path.concat(vert_path_to_track.res) ;
-        path_obj.path = path_obj.path.concat(hor_path_to_edge.coord_line) ;
-        ////console.log("find_dot_path() => path:",args.path);
-        ////console.log("fdp: total path=",path);
-        // * make aim is busy !
+        dotres.path = dotres.path.concat(args.dot_.path.vpart.res) ;
+        dotres.path = dotres.path.concat(hor_path_to_edge.coord_line) ;
 
+        // * make aim is busy !
         args.dot_.ord.arrived = true;
         args.pocket.aims_objs[side][args.dot_.loc.dest-1].who_join = args.dot_.ord;
         args.pocket.aims_[side][args.dot_.loc.dest].who_join = args.dot_.ord;
@@ -582,9 +649,9 @@ function find_dot_path(args)
         GOB.ready_dots.push(args.dot_.ord);
     }
     else {
-        //console.log("can't find path for dot:", args.dot_.ord);
+        console.log("can't find path for dot:", args.dot_.ord);
     }
-    return path_obj;
+    return dotres;
 }
 
 function get_dot_vdir(arg)
@@ -610,7 +677,6 @@ function find_vert_path_to_track(arg)
     // * arg = {path: path, dot_: arg.dot_, paths_matr: arg.paths_matr, pocket: arg.pocket, in_col_dots: [y7,y4,y2], dots_same_side: [y7], mid_xc: 6 }
     // * also may be property: 'dot_.loc.dest' and maybe 'mm_strat' = true
     // * adds vertical part of the path which taxi to aim track
-    console.log("DOT=", JSON.stringify(arg.dot_));
     let poss_path_part = {};
 
     //if (arg.h_dir) {}
@@ -665,13 +731,14 @@ function find_vert_path_to_track(arg)
         else {
             // * OK, here, we find vert path to track, and we find it deeper than dot xc position
             // * so, there is one IMPORTANT thing: if (Math.abs(arg.shift) > 1) then we must check for OVERLAPPING DOTS
-            if ( (Math.abs(arg.shift) > 1) && (arg.overlap_once) ) {
+            //if ( (Math.abs(arg.shift) > 1) && (arg.overlap_once) ) {
+            if (Math.abs(arg.shift) > 1)  {
                 //console.log(pref, "SHIFT MORE THAN 1");
                 // TODO: look if we overlap other dots, then we must to: 1) pass control to overlapped dot or 2) set target to next aim and accordinly recalculate vert path to track
                 let overlap_dots = count_overlapped_dots({shift: arg.shift, v_dir: arg.v_dir, dot_: arg.dot_, ord_matr: arg.ord_matr, vert_path: poss_path_part.res});
                 if (overlap_dots.count > 0) {
                     mark_overlapped_dots({reserved: overlap_dots.reserved });
-                    arg.overlap_once = false;
+                    //arg.overlap_once = false;
                     poss_path_part.msg = "shift_aim";
                     poss_path_part.res = overlap_dots;
                 }
@@ -876,7 +943,7 @@ function find_vert_path_to_track(arg)
         res.shift = 0;
         let side = arg.dot_.side;
         let target_aim = arg.dot_.loc.dest ;
-        console.log("target_aim",target_aim);
+        //console.log("target_aim",target_aim);
         let vec_vals = arg.pocket.aims_[side][target_aim].vec_vals;
         res.v_dir = "none"; // * "none" || "up" || "down"
         // * it the same check that dot is on the track line with the aim
@@ -1278,22 +1345,17 @@ function find_next_free_aim(arg, smart_prev)
 
 function check_aim_on_track_busy(arg)
 {
-        // * arg = {side: "left", cur_track: 3, pocket: { aims_vecs: {left:[1,1,0,1,1,0,..], right:[]}, aims_objs: {left:[{who_join: 0, ord: 2, vec_vals:[4,5]}, {..} ], right:[]}}
+        // * arg = {dot_: {...}, pocket: { aims_vecs: {left:[1,1,0,1,1,0,..], right:[]}, aims_objs: {left:[{who_join: 0, ord: 2, vec_vals:[4,5]}, {..} ], right:[]}}
         let busy = true;
-        let side_arr = arg.pocket.aims_[arg.side]; //[{},{}]
-
+        let side_arr = arg.pocket.aims_[arg.dot_.side]; //{1:{},2:{}}
         for (let k in side_arr) {
-            //////console.log("caotf: k = ", k, ", typeof k=", typeof k);
-            // * Note: typeof k == 'string'
-            // * k - is order number of AIM
-            if (Number(k) == arg.cur_track) {
+            if (Number(k) == arg.dot_.loc.dest) {
                 //////console.log("side_arr[k]=", side_arr[k]);
                 if (side_arr[k].who_join == 0) {
                     // * if exist such array
                     if (side_arr[k].reserved) {
                         // * the array shows who can get here
-                        if (side_arr[k].reserved.indexOf(arg.cur_track) > -1) {
-
+                        if (side_arr[k].reserved.indexOf(arg.dot_.loc.dest) > -1) {
                             busy = false;
                         }
                     }
@@ -1301,7 +1363,6 @@ function check_aim_on_track_busy(arg)
                         busy = false;
                     }
                 }
-                //res.ord = k;
                 break;
             }
         }
