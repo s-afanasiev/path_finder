@@ -389,7 +389,9 @@ function solve_one_bar(arg)
         }
     }
 
-    // *
+    //----------------------------------------
+    // * main part of function - sends a task to find a path for a single dot
+    //----------------------------------------
     for (let row in in_col_dots)
     {
         // * Note: type of in_col_dots[row] == "string"
@@ -411,58 +413,159 @@ function solve_one_bar(arg)
         add_path_to_paths_matr({ paths_matr: arg.paths_matr, path: arg.paths[ord], ord: ord });
     }
 
+    // * function decides how we will pass one column: from up to bottom or bottom to up
     function get_col_distrib(arg)
     {
-        // * arg = {column: 3, mid_xc: 6, pocket: {}, dist_tool: {} }
+        // * arg = {column: 3, mid_xc: 6, pocket: {}, dist_tool: {}, for_side: "left" }
         let vpass = "downup";
-
         //let side = (arg.column <= arg.mid_xc) ? ("left") : ("right");
-        let side = arg.for_side;
-
-        let free_aims_sum = 0;
-        let free_aims_counter = 0;
-        // * 1) calc avg of ord numbers of all free aims
-        let aims_ = arg.pocket.aims_[side];
-        for (let i in aims_) {
-            //keys can be: not_suitable_for, who_join, reserved
-            if (aims_[i].who_join == 0) {
-                free_aims_sum += Number(i);
-                free_aims_counter++;
+        let for_side = arg.for_side;
+        // * returns array of dots objects if in mid_xc there are both 'left' and 'right' dots or []
+        let find_mid_dots = function() {
+            let mid_dots = [];
+            let is_left     = false,
+                is_right    = false;
+            if ( (for_side == "left") && (arg.column == arg.mid_xc) ) {
+                for (let row in arg.dist_tool.dist_matr) {
+                    let dot = arg.dist_tool.dist_matr[row][arg.mid_xc];
+                    // * same 'if dot exist in this cell'
+                    if (dot.ord) {
+                        mid_dots.push(dot);
+                        if (dot.side == "left") is_left = true;
+                        else if (dot.side == "right") is_right = true;
+                    }
+                }
+            }
+            // So, return array only if it  contains both 'left' and 'right' dots
+            if (is_left && is_right) return mid_dots;
+            else return [];
+        }
+        // * returns number between (1 AND max(aims_) ) with 0.5 step, e.g. 1||1,5||2||...
+        let find_dot_track = function(dot) {
+            let aims_ = arg.pocket.aims_[for_side];
+            // * FINDING TRACK
+            let dot_track = 0;
+            for (let i in aims_) {
+                if (aims_[i].vec_vals.indexOf(dot.yc) > -1) {dot_track = Number(i)}  }
+            // * OR IT MEANS THAT DOT IS BETWEEN TRACKS
+            if (dot_track == 0) {
+                for (let i in aims_) {
+                    if (aims_[i].vec_vals.indexOf(dot.yc-1) > -1) {dot_track = Number(i) + 0.5}  }  }
+            return dot_track;
+        }
+        // * returns array of free aims, considering and subtracting those that are forbidden to go to
+        let find_free_aims_ords = function(dot) {
+            let free_aims_ords = [];
+            // choose aims in left or right pocket
+            let aims_ = arg.pocket.aims_[dot.side];
+            for (let i in aims_) {
+                // * if Aim reserved for this special Dot, then only this Aim we are interested in and nothing else matter
+                if (aims_[i].reserved) {
+                    if (aims_[i].reserved.indexOf(dot.ord) > -1) {
+                        free_aims_ords.push(Number(i));
+                        break;  }  }
+                if (aims_[i].who_join == 0) {
+                    if (aims_[i].not_suitable_for) {
+                        if (aims_[i].not_suitable_for.indexOf(dot.ord) == -1) {
+                            // * it means that Aim is Upper than Dot and Dot must be on Top of Column
+                            free_aims_ords.push(Number(i) );  }
+                    } else { free_aims_ords.push(Number(i) ); }
+                }
+            }
+            return free_aims_ords;
+        }
+        // * returns positive or negative score for dot, that makes the dot gravitate up or bottom
+        let count_score_by_yc_level = function(dot_track, free_aims_ords){
+            //console.log("count_score_by_yc_level: dot_track=",dot_track, ", free_aims_ords=",free_aims_ords);
+            // * look for first free Aim and it height Mark by YC and compare with Dot YC
+            let score = 0;
+            const YC_level_price = 2;
+            if (free_aims_ords.length > 0) {
+                for (let i in free_aims_ords) {
+                    let diff = Number(dot_track) - Number(free_aims_ords[i]);
+                    // * score - how much the strength of gravitate to up or bottom
+                    score += YC_level_price * diff * -1;
+                }
+            }
+            return score;
+        }
+        // * Probably it will recombinate dots in the middle column, because it might be more convenient for them
+        let recombinate_mid_dots = function(mid_dots){
+            // * mid_dots = [{dot_object},{dot_object}, ...];
+            // * clone array (Note: objects inside array are not clonned, but the same pointers)
+            let sorted_mid_dots = mid_dots.slice(0) ;
+            // * sides = ["left", "right", "right", ...]
+            let sides = mid_dots.map(el=>{ return el.side; });
+            // sort from min to max scores
+            sorted_mid_dots.sort((a,b)=>{
+                if (a.score < b.score) return -1;
+                if (a.score > b.score) return 1;
+                return 0;
+            });
+            // * sorted_sides = ["right", "right", "left", ...]
+            let sorted_sides = sorted_mid_dots.map(el=>{ return el.side; });
+            // * change sides for middle dots
+            for (let i=0; i < mid_dots.length; i++) {
+                mid_dots[i].side = sorted_sides[i];
             }
         }
-        // * to avoid div by 0
-        if (free_aims_counter == 0) {free_aims_counter = 1}
-        let free_aims_avg = (free_aims_sum / free_aims_counter);
+        //---------------------------------
+        //---------------------------------
 
-        // * 2) calc avg of tracks ord numbers for which dots in column are nearest
+        // * When went throw left half and came to mid_xc and mid_xc have dots with differents sides
+        let mid_dots = find_mid_dots();
+        //--------------------
+
+        // * MAYBE REASSIGN DOTS IN THE MIDDLE
+        if (mid_dots.length > 0) {
+            // * if first 'left' dot (which on top of column) is upper than it's Aim
+            // * then look for next 'right' dots in column the same goal
+            // * if both of them need to, for example, be on top of column, then second competition
+            // * for example, how much of free columns, moving to edge, have left or right
+
+            // * let's start assigning scores to dots, who needs to be at the top more
+            let score = 0, left_score = 0, right_score = 0;
+            for (let i in mid_dots) {
+                if (mid_dots[i].side == "left") {
+                    // * get the first dot. It always will 'left' at start
+                    mid_dots[i].score = 0;
+                    let dot_track_acc_05 = find_dot_track(mid_dots[i]);
+                    let free_aims_ords = find_free_aims_ords(mid_dots[i]);
+                    mid_dots[i].score += count_score_by_yc_level(dot_track_acc_05, free_aims_ords);
+                } else { mid_dots[i].score = 0; }
+            }
+            recombinate_mid_dots(mid_dots);
+        }
+        //--------------------
+
+        // * ---- 1) calc avg of ord numbers of all free aims
+        let free_aims_sum = 0;
+        let free_aims_counter = 0;
+        let aims_ = arg.pocket.aims_[for_side];
+        for (let i in aims_) {
+            // * keys can be: not_suitable_for, who_join, reserved
+            if (aims_[i].who_join == 0) {
+                free_aims_sum += Number(i);
+                free_aims_counter++;            }        }
+        let free_aims_avg = (free_aims_counter == 0) ? 0 : (free_aims_sum / free_aims_counter);
+
+        // * ---- 2) calc avg of ord numbers of tracks, for which dots in column are nearest
         let dots_sum = 0;
         let dots_counter = 0;
         for (let row in arg.dist_tool.dist_matr) {
             let dot = arg.dist_tool.dist_matr[row][arg.column];
             if (dot.ord) {
-                // * FINDING TRACK
-                let dot_track = 0;
-                for (let i in aims_) {
-                    if (aims_[i].vec_vals.indexOf(dot.yc) > -1) {dot_track = Number(i)}
-                }
-                // * IT MEANS DOT IS BETWEEN TRACKS
-                if (dot_track == 0) {
-                    for (let i in aims_) {
-                        if (aims_[i].vec_vals.indexOf(dot.yc-1) > -1) {dot_track = Number(i) + 0.5}
-                    }
-                }
-                console.log("dot_track=", dot_track);
+                let dot_track = find_dot_track(dot);
                 dots_sum += dot_track;
-                dots_counter++;
-            }
-        }
-        // * to avoid div by 0
-        if (dots_counter == 0) {dots_counter = 1}
-        let dots_avg = (dots_sum / dots_counter);
+                dots_counter++;            }        }
+        let dots_avg = (dots_counter == 0) ? 0 : (dots_sum / dots_counter);
 
-        // * 3) biggest will define vert or hor pass of column
+        // * ---- 3) biggest will define vert or hor pass of column
         if (free_aims_avg > dots_avg) vpass = "updown";
-        if (dots_avg > 0) console.log("dots_avg=", dots_avg, ", free_aims_avg=",free_aims_avg, ", vpass=",vpass, ", side=", side);
+        if (dots_avg > 0)
+            //console.log("dots_avg=", dots_avg, ", free_aims_avg=",free_aims_avg, ", vpass=",vpass, ", for_side=", for_side);
+
+
 
         return vpass;
     }
@@ -544,6 +647,35 @@ function solve_one_dot(arg)
     return dotres;
 }
 
+//_____________________¶
+//______________________¶
+//__________________¶__¶
+//_________________¶__¶
+//________________¶___¶
+//________________¶____¶
+//__________________¶____¶
+//___________________¶___¶
+//___________________¶__¶
+//______________¶¶¶¶¶¶¶¶¶¶¶
+//__________¶¶¶¶¶¶_______¶¶¶¶¶¶
+//________¶¶¶¶_______________¶¶¶¶
+//_______¶¶¶___________________¶¶¶
+//_______¶¶_____________________¶¶
+//_______¶¶¶¶¶______________¶¶¶¶¶¶¶¶¶¶¶
+//______¶¶__¶¶¶¶¶¶_______¶¶¶¶¶¶__¶¶___¶¶
+//______¶¶______¶¶¶¶¶¶¶¶¶¶¶______¶¶___¶¶
+//___¶¶_¶¶_______________________¶¶¶¶¶¶
+//_¶¶¶¶_¶¶________¶¶¶_¶¶¶________¶¶_¶¶¶¶¶
+//¶¶¶¶¶_¶¶_______¶¶¶¶¶¶¶¶¶_______¶¶_¶¶¶¶¶
+//¶¶¶¶¶_¶¶_______¶¶¶¶¶¶¶¶¶_______¶¶_¶¶¶¶¶
+//¶¶¶¶¶¶_¶¶_______¶¶¶¶¶¶¶_______¶¶_¶¶¶¶¶¶
+//¶¶¶¶¶¶¶_¶¶________¶¶¶_______¶¶_¶¶¶¶¶¶¶
+//_¶¶¶¶¶¶¶¶_¶¶_______¶_______¶¶_¶¶¶¶¶¶¶¶
+//___¶¶¶¶¶¶¶¶_¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶_¶¶¶¶¶¶¶¶
+//_____¶¶¶¶¶¶¶_______________¶¶¶¶¶¶¶
+//_______¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶
+//_________¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶
+//____________¶¶¶¶¶¶¶¶¶¶¶¶¶¶¶
 
 function find_dot_path(args)
 {
@@ -553,30 +685,28 @@ function find_dot_path(args)
     args.dot_.path = {};
     args.dot_.env = {};
     dotres.path = [];
-
-    //args.overlap_once = true;
     let side = args.dot_.side;
-    ////console.log("3) ffp: args pass1=", JSON.stringify(args));
 
     // * --------- 1. FIRST PART - FIND VERTICAL PATH TO TRACK -----------
-    // * vert_path_to_track = {msg: "done" || "shift_aim", res: [] || {reserved:[], count: 5} }
-    //let vert_path_to_track = find_vert_path_to_track(args);
+    // * path.vpart = {msg: "done" || "shift_aim", res: [] || {reserved:[], count: 5} }
     args.dot_.path.vpart = find_vert_path_to_track(args);
-
+    //console.log("args.dot_.path.vpart=",args.dot_.path.vpart);
+    // * -----1.1. CHECK IF VERT PATH IS OK -------------
     if (args.dot_.path.vpart.msg == "fail") {
         //console.log("Can't find DOT Path !");
         args.dot_.path.msg == "fail vpart";
         return dotres;
+        // * TODO: THERE SHOULD BE NO UNSOLVABLE SITUATIONS
     }
 
-    // * if (msg == "shift_aim") then this dot needs to retached to next aim
+    // * if (msg == "shift_aim") then this dot needs to assign to next aim
     // * means that the DOT moved to the depth of the grid to get around the obstacle and could block some dots which not arrived yet
     if (args.dot_.path.vpart.msg == "shift_aim")
     {
-
+        console.log("HERE!");
         // * reserving AIM, adding spec property. Now DOTs will look for this prop and ask can it welcome
         //args.pocket.aims_[side][args.dot_.loc.dest].reserved = vert_path_to_track.res.reserved;
-        args.pocket.aims_[side][args.dot_.loc.dest].reserved = vert_path_to_track.res.reserved;
+        args.pocket.aims_[side][args.dot_.loc.dest].reserved = args.dot_.path.vpart.res.reserved;
 
         // * TODO: TEMPORARY STRING BELOW MUST BE DELETED
         let dot_vdir = get_dot_vdir( {dot_: args.dot_, pocket: args.pocket} );
@@ -584,9 +714,9 @@ function find_dot_path(args)
 
         args.dot_.loc.dest_prev = args.dot_.loc.dest;
         if (dot_vdir == "down")
-            args.dot_.loc.dest = args.dot_.loc.dest + vert_path_to_track.res.count;
+            args.dot_.loc.dest = args.dot_.loc.dest + args.dot_.path.vpart.res.count;
         else
-            args.dot_.loc.dest = args.dot_.loc.dest - vert_path_to_track.res.count;
+            args.dot_.loc.dest = args.dot_.loc.dest - args.dot_.path.vpart.res.count;
 
         if (args.dot_.loc.dest == 0) {
             // * TODO: if we wanted to concede an Aim based on the principle of mini-matrices, but went beyond the numbering of Aims
@@ -602,7 +732,7 @@ function find_dot_path(args)
         {
             // * It means that, probably, more than one dot were catched by mini-matrix
             if (args.dot_.loc.dest < 0) {
-                let passed_count = vert_path_to_track.res.count;
+                let passed_count = args.dot_.path.vpart.res.count;
                 for (let i = args.dot_.loc.dest_prev; i > 0; i--) {
                     ////console.log("!!!TODO!!!", i);
                     args.pocket.aims_[side][i].not_suitable_for = [];
@@ -611,7 +741,7 @@ function find_dot_path(args)
                 }
             }
             else if (args.dot_.loc.dest > GOB.MAX_AIMS/2) {
-                let passed_count = vert_path_to_track.res.count;
+                let passed_count = args.dot_.path.vpart.res.count;
                 for (let i = args.dot_.loc.dest_prev; i <= GOB.MAX_AIMS/2; i++) {
                     //console.log("!!!TODO!!!", i);
                     args.pocket.aims_[side][i].not_suitable_for = [];
@@ -625,10 +755,8 @@ function find_dot_path(args)
             // * WE MUST MARk All the Aims, which were passed, as 'not_suitable_for', as example below
         }
         // * chage DOT property, which instruct the point where it should GO
-        //args.overlap_once = false;
 
-        vert_path_to_track = find_vert_path_to_track(args);
-        //console.log("6) vert_path_to_track next pass2=", vert_path_to_track);
+        args.dot_.path.vpart = find_vert_path_to_track(args);
     }
 
     // * --------- 2. SECOND PART - FIND HORIZONTAL PATH TO AIM -----------
@@ -641,10 +769,9 @@ function find_dot_path(args)
         dotres.path = dotres.path.concat(hor_path_to_edge.coord_line) ;
 
         // * make aim is busy !
-        args.dot_.ord.arrived = true;
+        args.dot_.arrived = true;
         args.pocket.aims_objs[side][args.dot_.loc.dest-1].who_join = args.dot_.ord;
         args.pocket.aims_[side][args.dot_.loc.dest].who_join = args.dot_.ord;
-
         // * add to Global Object ordernumber of Dot, which find own path
         GOB.ready_dots.push(args.dot_.ord);
     }
@@ -654,105 +781,187 @@ function find_dot_path(args)
     return dotres;
 }
 
-function get_dot_vdir(arg)
+function find_dot_path_v2_sm(arg)
 {
-    // * arg = {}
-    let side = arg.dot_.side;
-    let vec_vals = arg.pocket.aims_[side][arg.dot_.loc.dest].vec_vals;
-    let v_dir = "none"; // * "none" || "up" || "down"
-
-    // * it means that dot located higher than upper boundary of the target, accordingly dot need to move down
-    if (vec_vals[0] > arg.dot_.yc) { v_dir = "down"; }////console.log("calc_shift: dot direct down");
-    // * it means that dot located lower than the lowest border of aim, so dot need to move up
-    else if (vec_vals[vec_vals.length - 1] < arg.dot_.yc) { v_dir = "up"; } ////console.log("calc_shift: dot direct up");
-
-    return v_dir;
+    let concatenate_paths = function(vpath, hpath) {
+        //* path = [[x1,y1],[x2,y2]]
+        return [];
+    }
+    // --------- IMPL --------
+    if (arg.child) {
+        if (arg.child.has_vpath_found) {
+            if (arg.child.has_hpath_found) {
+                return concatenate_paths(arg.child.vpath.path, arg.child.hpath.path);
+            } else {
+                find_dot_hpath_v2_sm({parent: find_dot_path_v2_sm});
+            }
+        } else {
+            if (arg.vpart.why_fail = "edge_achieved")
+            find_dot_vpath_v2_sm({parent: find_dot_path_v2_sm, pass_hdir: "depth"});
+        }
+    } else {
+        find_dot_vpath_v2_sm({parent: find_dot_path_v2_sm, pass_hdir: "edge"});
+    }
 }
 
-// * ------------------------------------
+function find_vpath_v2_sm(arg)
+{
+    let result = {};
+
+    if (arg.pass_hdir == "edge") {
+        //* initial pre shift, cause need to step towards the edge for other dots good exodus
+        let shift_and_vdir = get_vdir_and_init_shift(arg);
+        if (shift_and_vdir.is_edge_overshift) { result.is_edge_overshift = true; }
+        else {
+            let edge_shift_res = recursive_shifter(arg);
+            if (edge_shift_res.done) {
+                //OK!
+                let vpath = edge_shift_res.data;
+            } else {
+                if (edge_shift_res.why_fail = "edge_overshift") {}
+                else { console.log("an unknown crap, when finding edge shift"); }
+            }
+
+        }
+    }
+    else if (arg.pass_hdir == "depth") {
+
+    }
+    // calling parent function with result
+    arg.parent({child: {has_vpath_found: true}});
+}
+
+function find_hpath_v2_sm(arg)
+{
+    arg.parent({child: {has_vpath_found: true}});
+}
+
+
+// * ----------------------------------------
+//-------1-st PART FIND VERT PATH TO TRACK---
 // * idea of this function is to find good free vertical path for dot, which will allows get out to necessary track
-// * ------------------------------------
+// * ---------------------------------------
 function find_vert_path_to_track(arg)
 {
     // * arg = {path: path, dot_: arg.dot_, paths_matr: arg.paths_matr, pocket: arg.pocket, in_col_dots: [y7,y4,y2], dots_same_side: [y7], mid_xc: 6 }
     // * also may be property: 'dot_.loc.dest' and maybe 'mm_strat' = true
     // * adds vertical part of the path which taxi to aim track
-    let poss_path_part = {};
-
-    //if (arg.h_dir) {}
-    // * ---- GET INITIAL SHIFT ----------
-    let args = {
-        in_col_dots: arg.in_col_dots, // count of all dots in current column
-        dots_same_side: arg.dots_same_side, // from them, those that intended to the same side
-        dot_: arg.dot_, // {xc:5, yc:0, id:1200, side:"left"}
-        pocket: arg.pocket, // {}
-        paths_matr: arg.paths_matr, // [[],[]]
-    };
-    let shift_and_vdir = get_vdir_and_init_shift(args);
-    //-------------------------------
-    arg.shift = shift_and_vdir.shift;
-    arg.v_dir = shift_and_vdir.v_dir;
-    arg.init_overshift = shift_and_vdir.init_overshift;
-    //arg.h_dir = "edge";
-    arg.was_path_found = false;
-    let is_edge_achieved = false;
-    let is_deep_achieved = false;
-
-    // * at the beginning we try to find any vertical strip to the track, constantly shifting to the edge, so strip, strip , strip,...
-    if (!arg.init_overshift) {
-        arg.h_dir = "edge";
-        //console.log(pref,"SHIFTING TO EDGE");
-        recursive_shifter(arg);
-    }
-    // * if there is no good vertical strip(path) when moving to edge, so now try to find the same thing, by moving to depth
-    if (!arg.was_path_found)
+    let vpath_info = {};
+    // * this function calculate optimal dot vertical path shift depend on how much other dots are present in this column and where they want to go
+    let get_vdir_and_init_shift = function(arg)
     {
-        //console.log(pref,"SHIFTING TO DEPTH");
-
-        // * -----------INIT SHIFT IN DEPTH ----------------
-        //arg.shift = init_depth_shift(args);
-        // * simplified shift initializationin depth: drop shift to first cell by XC in depth after the dot position. Different for the left and right sides.
-        arg.shift = (arg.dot_.side == "left") ? (1) : (-1) ;
-        // * --------------------------------------------------
-
-        arg.h_dir = "depth";
-        // * Now make recursively finding the good vert path moving by depth
-        recursive_shifter(arg);
-        //console.log(pref, "shift=",  arg.shift);
-        //console.log(pref, "poss_path_part=", poss_path_part.res);
-        if (!arg.was_path_found) {
-            // * IF FAIL AGAIN, so there are NO EASY ROUTES
-            //console.log(pref, "could not find good path for dot:", arg.dot_.ord);
-            is_deep_achieved = true;
-            poss_path_part.msg = "fail";
-            // * TODO: Additionally, we need to extract information about whether there were OVERLAPPING DOTS.
-            // * And if there were, then add an additional vertical path to the new track with checking for obstacles
+        // * arg = { in_col_dots: [y7,y4,y2], dots_same_side: [y7], dot_: {xc:7, yc:0, id: 1200, side: 'left'}, pocket: {aim_objs_2: {left: {3: {who_join: 2, vec_vals:[3,4]} } } }, paths_matr: [[],[]] }
+        // * 'init shift' - calculate initial shift based on how much dots are present in same column, which are cause to make shift beforehand
+        let define_dot_vdir = function(vec_vals){
+            let vdir = "none";
+            // * it means that dot located higher than upper boundary of the target, accordingly dot need to move down
+            if (vec_vals[0] > arg.dot_.yc) { vdir = "down"; }
+            ////console.log("calc_shift: dot direct down");
+            // * it means that dot located lower than the lowest border of aim, so dot need to move up
+            else if (vec_vals[vec_vals.length - 1] < arg.dot_.yc) { vdir = "up"; }
+            ////console.log("calc_shift: dot direct up");
+            return vdir;
         }
-        else {
-            // * OK, here, we find vert path to track, and we find it deeper than dot xc position
-            // * so, there is one IMPORTANT thing: if (Math.abs(arg.shift) > 1) then we must check for OVERLAPPING DOTS
-            //if ( (Math.abs(arg.shift) > 1) && (arg.overlap_once) ) {
-            if (Math.abs(arg.shift) > 1)  {
-                //console.log(pref, "SHIFT MORE THAN 1");
-                // TODO: look if we overlap other dots, then we must to: 1) pass control to overlapped dot or 2) set target to next aim and accordinly recalculate vert path to track
-                let overlap_dots = count_overlapped_dots({shift: arg.shift, v_dir: arg.v_dir, dot_: arg.dot_, ord_matr: arg.ord_matr, vert_path: poss_path_part.res});
-                if (overlap_dots.count > 0) {
-                    mark_overlapped_dots({reserved: overlap_dots.reserved });
-                    //arg.overlap_once = false;
-                    poss_path_part.msg = "shift_aim";
-                    poss_path_part.res = overlap_dots;
-                }
-
-            }
-            // * IMPORTANT TO CHANGE
-            else { poss_path_part.msg = "done"; }
+        let init_shift = function(side, v_dir, vec_vals, otherside_dots){
+            // * ------ INIT SHIFT CALCULATING -------
+            let shift = 0;
+            if (side == "left") {
+                if (v_dir == "down") {
+                    // * e.g. dot on 5 YC and Aim is on 9 YC, then y = 6,7,8,9
+                    for (let y = arg.dot_.yc + 1; y <= vec_vals[0]; y++) {
+                        if (arg.dots_same_side.indexOf(y) > -1) shift--;
+                        if (otherside_dots.indexOf(y) > -1) { shift--; }  }  }
+                else if (v_dir == "up") {
+                    // * e.g. dot on 8 YC and Aim's lowest border is on 4 YC, then y = 7,6,5,4
+                    for (let y = arg.dot_.yc - 1; y >= vec_vals[1]; y--) {
+                        if (arg.dots_same_side.indexOf(y) > -1) shift--;
+                        if (otherside_dots.indexOf(y) > -1) { shift--; }  }  }  }
+            else if (side == "right") {
+                if (v_dir == "down") {
+                    // * e.g. dot on 5 YC and Aim is on 9 YC, then y = 6,7,8,9
+                    for (let y = arg.dot_.yc + 1; y <= vec_vals[0]; y++) {
+                        if (arg.dots_same_side.indexOf(y) > -1) shift++;
+                        if (otherside_dots.indexOf(y) > -1) { shift++; }  }  }
+                else if (v_dir == "up") {
+                    // * e.g. dot on 8 YC and Aim lowest border is on 4 YC, then y = 7,6,5,4
+                    for (let y = arg.dot_.yc - 1; y >= vec_vals[1]; y--) {
+                        if (arg.dots_same_side.indexOf(y) > -1) shift++;
+                        if (otherside_dots.indexOf(y) > -1) { shift++; }  }  }   }
+            return shift;
+            // * -----------------------------
         }
+        //-----------IMPL---------------
+        let res = {};
+        res.shift = 0;
+        let side = arg.dot_.side;
+        let target_aim = arg.dot_.loc.dest ;
+        let vec_vals = arg.pocket.aims_[side][target_aim].vec_vals;
+        // * res.v_dir == "none" || "up" || "down"
+        res.v_dir = define_dot_vdir(vec_vals);
+        // * now, when we know dot vertical direction, we must calculate how much of other dots are present in same column on the relevant way
+        // * array like [y4, y2] of dots, which will go to other side than the current dot
+        let otherside_dots = DiffArrays(arg.in_col_dots, arg.dots_same_side);
+        // * distance from dot YC position to Aim's YC position
+        let v_dist;
+        //let only_once = true;
+        res.shift = init_shift(side, res.v_dir, vec_vals, otherside_dots);
+        // * --- ASK does this SHIFT go OVER the EDGE of the grid ? ---
+        let dot_edge_dist = (side == "left") ? (arg.dot_.xc) : (arg.paths_matr[0].length - 1 - arg.dot_.xc);
+        // * next string of code determines that the shift is greater than edge allows
+        if (Math.abs(res.shift) > dot_edge_dist)  {
+            // * overshift says how much cells we get over the grid
+            res.edge_overshift = true;
+            // * make recommended shift like first inversed column
+            res.shift = (side == "left") ? (1) : (-1) ;
+        }
+        // * ------------------------
+
+        // * now check if shift exist, but we already on edge, then we are shit in pants
+        // * if not undefined order number of concrete aim, where current dot must be pass
+        //if (arg.dot_.loc.dest) {        }
+        // * how much of dots are present above current dot in current column.
+        //let dots_above = arg.in_col_dots.length - arg.in_col_dots.indexOf(arg.dot_.yc) - 1;
+        // * desired shift is such, that he is depend on how much dots are present above current dot in current column
+        //arg.shift = (arg.dot_.side == 'left') ? arg.dots_above * -1 : arg.dots_above;
+        //if( (arg.shift < 0) && (arg.dot_.xc == 0) ) arg.shift = 0;
+
+        return res;
     }
+    let recursive_shifter = function(arg)
+    {
+         // * arg = { path: path, dot_: arg.dot_, paths_matr: arg.paths_matr, pocket: arg.pocket, in_col_dots: [y7,y4,y2], dots_same_side: [y7], shift: 2, v_dir: "up", edge_overshift: true }
+        // * it returns a flat vertical line that coincides with a Dot in the XC coordinate And it's YCmin = Dot.yc(+-)1 And YCmax = the Track of the Aim
+        vpath_info.res = get_dot_init_vpath_with_shift({ path: arg.path, dot_: arg.dot_, paths_matr: arg.paths_matr, pocket: arg.pocket, shift: arg.shift, v_dir: arg.v_dir});
 
-    return poss_path_part;
+        // * if moving in depth and have big shift, we must check column with XC = (dot_pos+shift-1)
+        if ( (arg.h_dir == "depth") && (Math.abs(arg.shift) > 1) ) {    }
 
-    // * INNER FUNCTIONS
-    function mark_overlapped_dots(arg)
+        // * check this vertical path for obstacles = {is_obstacles: true, arr: []}
+        let obstacles = check_path_part_for_obstacles({path_part: vpath_info.res, paths_matr: arg.paths_matr, dot_: arg.dot_ });
+
+        // * some differences depend on side
+            // * h_dir gets into recursion from the top layer of the function stack and the recursion will be completed when we get to the edge or to the depth
+        if (arg.dot_.side == "left") {
+            arg.shift = (arg.h_dir == "edge") ? (arg.shift - 1) : (arg.shift + 1);
+            arg.shift_lim = (arg.h_dir == "edge") ? (arg.dot_.xc) : (arg.mid_xc - arg.dot_.xc);
+        }
+        else if (arg.dot_.side == "right") {
+            arg.shift = (arg.h_dir == "edge") ? (arg.shift + 1) : (arg.shift - 1);
+            arg.shift_lim = (arg.h_dir == "edge") ? (arg.paths_matr[0].length - arg.dot_.xc - 1) : (arg.dot_.xc - arg.mid_xc);
+        }
+
+        // * if there is obstacles, then start recursive function, which find free path
+        if (obstacles.is_obstacles) {
+            // * if obstacle in a same hor line, at this moment we will stop recursion, because complexity of this route more than 2 elbows
+            if (obstacles.is_obstacle_on_same_hor_line) { arg.was_path_found = false; return; }
+            if(Math.abs(arg.shift) <= Math.abs(arg.shift_lim))  {
+                recursive_shifter(arg);
+            }
+
+        }
+        else { arg.was_path_found = true; vpath_info.msg = "done"; return; }
+    }
+    let mark_overlapped_dots = function(arg)
     {
         // * arg = {reserved: []}
         ////console.log("reserved=", arg.reserved);
@@ -761,15 +970,14 @@ function find_vert_path_to_track(arg)
         }
         ////console.log("GOB dots=", JSON.stringify(GOB.dots));
     }
-
-    function count_overlapped_dots(arg)
+    let count_overlapped_dots = function(arg)
     {
-        // * arg = {shift: -2, v_dir: 'up', dot_: {}, ord_matr: [[],[]], vert_path: poss_path_part}
+        // * arg = {shift: -2, v_dir: 'up', dot_: {}, ord_matr: [[],[]], vert_path: vpath_info}
         ////console.log("count_overlapped_dots() -> vert_path=", JSON.stringify(arg.vert_path);
 
         // * if current dot route was laid in depth, it could overlap other dots, so we check for such dots
         // * META: from X1,Y1 to Xn,Yn look for dots ord_matr, which is not arrived yet
-        // * X1 = dot.xc+1; Xn = dot.xc+shift; Y1 = dot.yc; Yn = poss_path_part.tail
+        // * X1 = dot.xc+1; Xn = dot.xc+shift; Y1 = dot.yc; Yn = vpath_info.tail
         let res = {};
         res.reserved = [];
         res.count = 0;
@@ -830,8 +1038,7 @@ function find_vert_path_to_track(arg)
         return res;
 
     }
-
-    function init_depth_shift(arg)
+    let init_depth_shift = function(arg)
     {
         // * arg = {}
         let res = {};
@@ -912,7 +1119,7 @@ function find_vert_path_to_track(arg)
         // * next string of code determines that the shift is greater than edge allows
         if (Math.abs(res.shift) > dot_edge_dist)  {
             // * overshift says how much cells we get over the grid
-            res.init_overshift = true;
+            res.edge_overshift = true;
             // * make recommended shift like first inversed column
             res.shift = (side == "left") ? (1) : (-1) ;
         }
@@ -933,158 +1140,7 @@ function find_vert_path_to_track(arg)
         //return shift;
         return res;
     }
-
-    // * this function calculate optimal dot vertical path shift depend on how much other dots are present in this column and where they want to go
-    function get_vdir_and_init_shift(arg)
-    {
-        // * arg = { in_col_dots: [y7,y4,y2], dots_same_side: [y7], dot_: {xc:7, yc:0, id: 1200, side: 'left'}, pocket: {aim_objs_2: {left: {3: {who_join: 2, vec_vals:[3,4]} } } }, paths_matr: [[],[]] }
-        // * 'init shift' - calculate initial shift based on how much dots are present in same column, which force to make shift beforehand
-        let res = {};
-        res.shift = 0;
-        let side = arg.dot_.side;
-        let target_aim = arg.dot_.loc.dest ;
-        //console.log("target_aim",target_aim);
-        let vec_vals = arg.pocket.aims_[side][target_aim].vec_vals;
-        res.v_dir = "none"; // * "none" || "up" || "down"
-        // * it the same check that dot is on the track line with the aim
-        if (vec_vals.indexOf(arg.dot_.yc) > -1) { res.shift = 0; }////console.log("calc_shift: dot direct none");
-        // * it means that dot located higher than upper boundary of the target, accordingly dot need to move down
-        else if (vec_vals[0] > arg.dot_.yc) { res.v_dir = "down"; }////console.log("calc_shift: dot direct down");
-        // * it means that dot located lower than the lowest border of aim, so dot need to move up
-        else if (vec_vals[vec_vals.length - 1] < arg.dot_.yc) { res.v_dir = "up"; } ////console.log("calc_shift: dot direct up");
-
-        // * now, when we know dot direction we must calculate how much of other dots are present in same column on the relevant way
-        let otherside_dots = DiffArrays(arg.in_col_dots, arg.dots_same_side); // array like [y4, y2] dots which will go to other side than the current dot
-        let v_dist; // * distance from dot YC position to Aim's YC position
-        let only_once = true;
-
-        // * -- SHIFT CALCULATING ---
-        if (side == "left")
-        {
-            if (res.v_dir == "down") {
-                // * e.g. dot on 5 YC and Aim is on 9 YC, then i = 6,7,8,9
-                for (let y = arg.dot_.yc + 1; y <= vec_vals[0]; y++) {
-                    if (arg.dots_same_side.indexOf(y) > -1) res.shift--;
-                    if ( (otherside_dots.indexOf(y) > -1) && (only_once) ) {
-                        res.shift--;
-                        only_once = false;
-                    }
-                }
-            }
-            else if (res.v_dir == "up") {
-                // * e.g. dot on 8 YC and Aim lowest border is on 4 YC, then i = 7,6,5,4
-                for (let y = arg.dot_.yc - 1; y >= vec_vals[1]; y--) {
-                    if (arg.dots_same_side.indexOf(y) > -1) res.shift--;
-                    if ( (otherside_dots.indexOf(y) > -1) && (only_once) ) {
-                        res.shift--;
-                        only_once = false;
-                    }
-                }
-            }
-        }
-        else if (side == "right")
-        {
-            if (res.v_dir == "down") {
-                // * e.g. dot on 5 YC and Aim is on 9 YC, then i = 6,7,8,9
-                for (let y = arg.dot_.yc + 1; y <= vec_vals[0]; y++) {
-                    if (arg.dots_same_side.indexOf(y) > -1) res.shift++;
-                    if ( (otherside_dots.indexOf(y) > -1) && (only_once) ) {
-                        res.shift++;
-                        only_once = false;
-                    }
-                }
-            }
-            else if (res.v_dir == "up") {
-                // * e.g. dot on 8 YC and Aim lowest border is on 4 YC, then i = 7,6,5,4
-                for (let y = arg.dot_.yc - 1; y >= vec_vals[1]; y--) {
-                    if (arg.dots_same_side.indexOf(y) > -1) res.shift++;
-                    if ( (otherside_dots.indexOf(y) > -1) && (only_once) ) {
-                        res.shift++;
-                        only_once = false;
-                    }
-                }
-            }
-        }
-        // * ------------------------
-
-        // * --- ASK does this SHIFT go OVER the EDGE of the grid ? ---
-        let dot_edge_dist = (side == "left") ? (arg.dot_.xc) : (arg.paths_matr[0].length - 1 - arg.dot_.xc);
-
-        // * next string of code determines that the shift is greater than edge allows
-        if (Math.abs(res.shift) > dot_edge_dist)  {
-            // * overshift says how much cells we get over the grid
-            res.init_overshift = true;
-            // * make recommended shift like first inversed column
-            res.shift = (side == "left") ? (1) : (-1) ;
-        }
-        // * ------------------------
-
-
-        // * now check if shift exist, but we already on edge, then we are shit in pants
-
-        // * if not undefined order number of concrete aim, where current dot must be pass
-        //if (arg.dot_.loc.dest) {        }
-        // * how much of dots are present above current dot in current column.
-        //let dots_above = arg.in_col_dots.length - arg.in_col_dots.indexOf(arg.dot_.yc) - 1;
-        // * desired shift is such, that he is depend on how much dots are present above current dot in current column
-        //arg.shift = (arg.dot_.side == 'left') ? arg.dots_above * -1 : arg.dots_above;
-
-        //if( (arg.shift < 0) && (arg.dot_.xc == 0) ) arg.shift = 0;
-
-        //return shift;
-        return res;
-    }
-
-    function recursive_shifter(arg)
-    {
-         // * arg = { path: path, dot_: arg.dot_, paths_matr: arg.paths_matr, pocket: arg.pocket, in_col_dots: [y7,y4,y2], dots_same_side: [y7], shift: 2, v_dir: "up", init_overshift: true }
-        ////console.log("irs: shift=", arg.shift);
-        if (arg.h_dir) {
-            // * It tell us which direction we must go to find good vert path to track line: 'to edge' or 'to depth'
-            ////console.log("h_dir=",arg.h_dir);
-        }
-
-        poss_path_part.res = add_vert_path_part_depend_on_pos({ path: arg.path, dot_: arg.dot_, paths_matr: arg.paths_matr, pocket: arg.pocket, shift: arg.shift, v_dir: arg.v_dir});
-        ////console.log("irs: poss_path_part=", poss_path_part.res);
-
-        // * if moving in depth and have big shift, we must check column with XC = (dot_pos+shift-1)
-        if ( (arg.h_dir == "depth") && (Math.abs(arg.shift) > 1) ) {
-
-        }
-
-        // * check this vertical path for obstacles = {is_obstacles: true, arr: []}
-        let obstacles = check_path_line_for_obstacles({path_part: poss_path_part.res, paths_matr: arg.paths_matr, dot_: arg.dot_ });
-        //console.log("obstacles=", JSON.stringify(obstacles));
-//        let obstacles = check_vpath_free_v2( { xc: arg.dot_.xc, yc_from: y1, yc_to: y5, ord_matr: [[],[]] } );
-
-        // * some differences depend on side
-        if (arg.dot_.side == "left") {
-            arg.shift = (arg.h_dir == "edge") ? (arg.shift - 1) : (arg.shift + 1);
-            //arg.shift_lim = arg.dot_.xc;
-            arg.shift_lim = (arg.h_dir == "edge") ? (arg.dot_.xc) : (arg.mid_xc - arg.dot_.xc);
-        }
-        else if (arg.dot_.side == "right") {
-            arg.shift = (arg.h_dir == "edge") ? (arg.shift + 1) : (arg.shift - 1);
-            //arg.shift_lim = arg.paths_matr.length - arg.dot_.xc + 1;
-            arg.shift_lim = (arg.h_dir == "edge") ? (arg.paths_matr[0].length - arg.dot_.xc - 1) : (arg.dot_.xc - arg.mid_xc);
-        }
-        ////console.log("shift=",arg.shift,", shift_lim=",arg.shift_lim);
-
-        // * if there is obstacles, then start recursive function, which find free path
-        if (obstacles.is_obstacles) {
-            // * if obstacle in a same hor line, at this moment we will stop recursion, because complexity of this route more than 2 elbows
-            if (obstacles.is_obstacle_on_same_hor_line) { arg.was_path_found = false; return; }
-            if(Math.abs(arg.shift) <= Math.abs(arg.shift_lim))  {
-                recursive_shifter(arg);
-            }
-
-        }
-        else {
-            arg.was_path_found = true; poss_path_part.msg = "done"; return;
-        }
-    }
-
-    function add_vert_path_part_depend_on_pos(arg)
+    let get_dot_init_vpath_with_shift = function(arg)
     {
         // * arg = {path: [[x1,y1],[x2,y2]], paths_matr:[[],[]], dot_: {}, shift:0}
         let res = [];
@@ -1154,7 +1210,74 @@ function find_vert_path_to_track(arg)
 
         return res;
     }
-    // * END INNER FUNCTIONS
+
+    // * ---- GET INITIAL SHIFT ----------
+    let args = {
+        in_col_dots: arg.in_col_dots, // count of all dots in current column
+        dots_same_side: arg.dots_same_side, // from them, those that intended to the same side
+        dot_: arg.dot_, // {xc:5, yc:0, id:1200, side:"left"}
+        pocket: arg.pocket, // {}
+        paths_matr: arg.paths_matr, // [[],[]]
+    };
+    let shift_and_vdir = get_vdir_and_init_shift(args);
+    //-------------------------------
+    vpath_info = Object.assign(vpath_info, shift_and_vdir);
+    arg.shift = shift_and_vdir.shift;
+    arg.v_dir = shift_and_vdir.v_dir;
+    arg.edge_overshift = shift_and_vdir.edge_overshift;
+    arg.was_path_found = false;
+    let is_edge_achieved = false;
+    let is_deep_achieved = false;
+
+    // * at the beginning we try to find any vertical strip to the track, constantly shifting to the edge, so strip, strip , strip,... And at the end we can get to the Edge of the grid
+    if (!arg.edge_overshift) {
+        arg.h_dir = "edge";
+        recursive_shifter(arg);
+    }
+    // * if there is no good vertical strip(path) when moving to edge, so now try to find the same thing, by moving to depth
+    if (!arg.was_path_found)
+    {
+        //console.log(pref,"SHIFTING TO DEPTH");
+
+        // * -----------INIT SHIFT IN DEPTH ----------------
+        //arg.shift = init_depth_shift(args);
+        // * simplified shift initializationin depth: drop shift to first cell by XC in depth after the dot position. Different for the left and right sides.
+        arg.shift = (arg.dot_.side == "left") ? (1) : (-1) ;
+        // * --------------------------------------------------
+
+        arg.h_dir = "depth";
+        // * Now make recursively finding the good vert path moving by depth
+        recursive_shifter(arg);
+        //console.log(pref, "shift=",  arg.shift);
+        //console.log(pref, "vpath_info=", vpath_info.res);
+        if (!arg.was_path_found) {
+            // * IF FAIL AGAIN, so there are NO EASY ROUTES
+            //console.log(pref, "could not find good path for dot:", arg.dot_.ord);
+            is_deep_achieved = true;
+            vpath_info.msg = "fail";
+            // * TODO: Additionally, we need to extract information about whether there were OVERLAPPING DOTS.
+            // * And if there were, then add an additional vertical path to the new track with checking for obstacles
+        }
+        else {
+            // * OK, here, we find vert path to track, and we find it deeper than dot xc position
+            // * so, there is one IMPORTANT thing: if (Math.abs(arg.shift) > 1) then we must check for OVERLAPPING DOTS
+            if (Math.abs(arg.shift) > 1)  {
+                //console.log(pref, "SHIFT MORE THAN 1");
+                // TODO: look if we overlap other dots, then we must to: 1) pass control to overlapped dot or 2) set target to next aim and accordinly recalculate vert path to track
+                let overlap_dots = count_overlapped_dots({shift: arg.shift, v_dir: arg.v_dir, dot_: arg.dot_, ord_matr: arg.ord_matr, vert_path: vpath_info.res});
+                if (overlap_dots.count > 0) {
+                    mark_overlapped_dots({reserved: overlap_dots.reserved });
+                    //arg.overlap_once = false;
+                    vpath_info.msg = "shift_aim";
+                    vpath_info.res = overlap_dots;
+                }
+            }
+            // * IMPORTANT TO CHANGE
+            else { vpath_info.msg = "done"; }
+        }
+    }
+    //console.log("vpath_info=", vpath_info);
+    return vpath_info;
 
 }
 
@@ -1212,49 +1335,6 @@ function look_edge_line_free(arg)
 }
 
 
-function check_path_line_for_obstacles(arg)
-    {
-        // * arg = {path_part: [[x1,y1],[x2,y2]], paths_matr:[[],[]], dot_: {} }
-        let res = {};
-        res.arr = [];
-        res.is_obstacles = false;
-        for (let i in arg.path_part) {
-            let xc = arg.path_part[i][0], yc = arg.path_part[i][1];
-            let val = arg.paths_matr[yc][xc];
-            if (val > 0) {
-                if (yc == arg.dot_.yc) { res.is_obstacle_on_same_hor_line = true; }
-                res.is_obstacles = true;
-                let one_obstacle = [];
-                one_obstacle.push(xc, yc);
-                res.arr.push(one_obstacle)
-            }
-        }
-        return res;
-    }
-
-function add_vert_path_part_to_aim(arg)
-    {
-        // * arg = {aim_ord: next_aim, pocket: arg.pocket, side: side, dot_: arg.dot_, shift:0}
-        let res = [];
-        let vv = arg.pocket.aims_[arg.side][arg.aim_ord].vec_vals;
-        ////console.log("avvpta: vec_vals=",vv, ", dot_yc=", arg.dot_.yc);
-        let start_path = arg.dot_.yc, step = 0;
-        // * previous aim that was the dest to current dot was busy, so now this newfree aim is exactly not on equal Y coord
-        // * move down
-        if (vv[0] > arg.dot_.yc) { start_path++; step = 1; }
-        // * move up
-        else { start_path--; step = -1; }
-        for (let i = start_path; i != vv[0]; i += step ) {
-            let one_coord = [];
-            one_coord.push(arg.dot_.xc + arg.shift, i);
-            res.push(one_coord);
-        }
-        let one_coord = [];
-        one_coord.push(arg.dot_.xc + arg.shift, vv[0]);
-        res.push(one_coord);
-        return res;
-    }
-
 //-------------------
 //--X-------------X--
 //---X-----------X---
@@ -1264,6 +1344,117 @@ function add_vert_path_part_to_aim(arg)
 //---X-----------X---
 //--X-------------X--
 //-------------------
+
+// ------------------------------------------
+// --------SMALL INDEPENDENT FUNCTIONS-------
+// ------------------------------------------
+//..............(/(/(
+//..........(( °~ ° ))
+//...........'(¯`v´¯)
+//............(_.^._)
+//..............╝'╚
+function get_dot_vdir(arg)
+{
+    // * arg = {}
+    let side = arg.dot_.side;
+    let vec_vals = arg.pocket.aims_[side][arg.dot_.loc.dest].vec_vals;
+    let v_dir = "none"; // * "none" || "up" || "down"
+
+    // * it means that dot located higher than upper boundary of the target, accordingly dot need to move down
+    if (vec_vals[0] > arg.dot_.yc) { v_dir = "down"; }////console.log("calc_shift: dot direct down");
+    // * it means that dot located lower than the lowest border of aim, so dot need to move up
+    else if (vec_vals[vec_vals.length - 1] < arg.dot_.yc) { v_dir = "up"; } ////console.log("calc_shift: dot direct up");
+
+    return v_dir;
+}
+
+// ------- CHECK PATH LINES FOR OBSTACLES -----------
+
+function check_path_part_for_obstacles(arg)
+{
+        // * arg = {path_part: [[x1,y1],[x2,y2]], paths_matr:[[],[]], dot_: {...} }
+        let res = {};
+        res.arr = [];
+        res.is_obstacles = false;
+        for (let i in arg.path_part) {
+            let xc = arg.path_part[i][0],
+                yc = arg.path_part[i][1];
+
+            if (arg.paths_matr[yc][xc] > 0) {
+                if (yc == arg.dot_.yc) { res.is_obstacle_on_same_hor_line = true; }
+                res.is_obstacles = true;
+                let one_obstacle = [];
+                one_obstacle.push(xc, yc);
+                res.arr.push(one_obstacle)
+            }
+        }
+        return res;
+}
+
+function check_vpath_free(arg)
+{
+    // * arg = {xc: x3, yc_from: y1, yc_to: y5, ord_matr: [[],[]]}
+    let vdir =  (arg.yc_from >= arg.yc_to) ? "up" : "down";
+
+    let res = {};
+    res.is_free = true;
+    res.obstacles = [];
+
+    if (vdir == "down") {
+        for (let y = arg.yc_from; y <= arg.yc_to; y++) {
+            if (arg.ord_matr[y][arg.xc] > 0) {
+                res.is_free = false;
+                let one_coord = [];
+                one_coord.push(arg.xc, y);
+                res.obstacles.push(one_coord);
+            }
+        }
+    }
+    else if (vdir == "up") {
+        for (let y = arg.yc_from; y >= arg.yc_to; y--) {
+            if (arg.ord_matr[y][arg.xc] > 0) {
+                res.is_free = false;
+                let one_coord = [];
+                one_coord.push(arg.xc, y);
+                res.obstacles.push(one_coord);
+            }
+        }
+    }
+    return res;
+}
+
+function check_vpath_free_v2(arg)
+{
+    // * arg = {xc: x3, yc_from: y1, yc_to: y5, ord_matr: [[],[]]}
+    // * we must give a path here to check, excluding the point itself in advance
+    let bigger, lower;
+    if (arg.yc_from >= arg.yc_to) {bigger = arg.yc_from; lower = arg.yc_to;}
+    else { bigger = arg.yc_to; lower = arg.yc_from; }
+
+    let res = {};
+    res.is_free = true;
+    res.obstacles = [];
+
+    for (let y = lower; y <= bigger; y++) {
+        if (arg.ord_matr[y][arg.xc] > 0) {
+            res.is_free = false;
+            let one_coord = [];
+            one_coord.push(arg.xc, y);
+            res.obstacles.push(one_coord);
+        }
+    }
+    return res;
+}
+
+
+function check_hpath_free(arg)
+{
+
+}
+// ------------------------------------------
+// --------/SMALL INDEPENDENT FUNCTIONS------
+// ------------------------------------------
+
 
 function find_next_free_aim_smart(arg) {
     let first_next = find_next_free_aim(arg);
@@ -1477,70 +1668,6 @@ function get_dot_pos_rel_aim(arg)
 }
 
 //---------------------------------------------------
-// ------- CHECK PATH LINES FOR OBSTACLES -----------
-//---------------------------------------------------
-function check_vpath_free(arg)
-{
-    // * arg = {xc: x3, yc_from: y1, yc_to: y5, ord_matr: [[],[]]}
-    let vdir =  (arg.yc_from >= arg.yc_to) ? "up" : "down";
-
-    let res = {};
-    res.is_free = true;
-    res.obstacles = [];
-
-    if (vdir == "down") {
-        for (let y = arg.yc_from; y <= arg.yc_to; y++) {
-            if (arg.ord_matr[y][arg.xc] > 0) {
-                res.is_free = false;
-                let one_coord = [];
-                one_coord.push(arg.xc, y);
-                res.obstacles.push(one_coord);
-            }
-        }
-    }
-    else if (vdir == "up") {
-        for (let y = arg.yc_from; y >= arg.yc_to; y--) {
-            if (arg.ord_matr[y][arg.xc] > 0) {
-                res.is_free = false;
-                let one_coord = [];
-                one_coord.push(arg.xc, y);
-                res.obstacles.push(one_coord);
-            }
-        }
-    }
-    return res;
-}
-
-function check_vpath_free_v2(arg)
-{
-    // * arg = {xc: x3, yc_from: y1, yc_to: y5, ord_matr: [[],[]]}
-    // * we must give a path here to check, excluding the point itself in advance
-    let bigger, lower;
-    if (arg.yc_from >= arg.yc_to) {bigger = arg.yc_from; lower = arg.yc_to;}
-    else { bigger = arg.yc_to; lower = arg.yc_from; }
-
-    let res = {};
-    res.is_free = true;
-    res.obstacles = [];
-
-    for (let y = lower; y <= bigger; y++) {
-        if (arg.ord_matr[y][arg.xc] > 0) {
-            res.is_free = false;
-            let one_coord = [];
-            one_coord.push(arg.xc, y);
-            res.obstacles.push(one_coord);
-        }
-    }
-    return res;
-}
-
-
-function check_hpath_free(arg)
-{
-
-}
-
-//---------------------------------------------------
 
 function get_dot_pos_rel_grid(arg)
 	{
@@ -1571,6 +1698,11 @@ function clone_and_sort_objarr(DISTANCE_ARR){
 //------ reshape flat array of objects to 2d ---------
 //------and add property 'side' which left or right -------
 //------------------------------------------------
+//____<"">_____<"">_____...... ____<"">_____<"">_______
+/// ___ . __. ___ . __ . ___...\...../ ___ . __. ___ . __ . ___...\...\
+//| |__| |...| |__| |....| |__|...|XXX| |__| |...| |__| |....| |__|...|___\
+//\____ |__|____ |__|______/.....\____ |__|____ |__|______/___/o
+//_O=O____O=O_____O=O_____O=O____O=O____O=O_______
 function reshape_2d_and_add_prop_side(DISTANCE_ARR, MATR_W, IDS_L){
     let distarr_reshaped = reshape_2d(DISTANCE_ARR, MATR_W);
     distarr_reshaped = add_props_to_obj_matrix(distarr_reshaped, IDS_L);
@@ -1607,7 +1739,9 @@ function add_props_to_obj_matrix(arr2d, IDS_L)
 }
 //------------------------------------------------
 
-
+//.../\__/\
+//... |O_O|
+//...\___ /
 function get_half_array_and_sum(arr, begin, end, MATR_W){
 	let res_arr = [];
 	let sum = 0;
@@ -1834,6 +1968,30 @@ function countDotsHalfsByCenterParalAxis(arr2d)
 	return halfs;
 }
 
+//________$$$$$
+//_______$$___$$
+//_______$$___$$
+//_______$$___$$
+//_______$$___$$
+//_______$$___$$
+//_______$$___$$$$$$
+//_______$$___$$___$$$$$$
+//_______$$___$$___$$____$$$$
+//_______$$___$$___$$____$__$$
+//_$$$$$_$$___$$___$$___$$____$
+//_$$____$$$_____________$____$
+//_$$____$$___________________$
+//__$$___$$___________________$
+//___$$__$$___________________$
+//____$$______________________$
+//_____$$___________________$$$
+//______$$$_________________$$
+//_______$$_________________$$
+//_______$$$_______________$$
+//_________$$_____________$$
+//_________$$$$$$$$$$$$$$$$$
+//_________$$$$$$$$$$$$$$$$$
+
 function findFieldCenter(field) {
 	let sum_x = 0, count = 0;
 	for (let y in field) {
@@ -1969,4 +2127,42 @@ function DiffArrays(A,B)
    return C;
 }
 
+//__¶8_________¶¶_____________________________8
+//_¶¶¶8_______¶¶¶______________________8¶¶¶¶¶¶8
+//_¶__¶¶¶___8¶¶_¶¶_________________8¶¶_¶¶¶¶_¶¶¶
+//_¶__8_¶8__¶¶_8_¶_______________8¶¶¶_8¶¶___¶8
+//_¶__¶¶¶¶_¶¶_¶¶_¶¶_____________8¶¶¶__¶¶___¶¶
+//_¶8_¶_¶¶¶¶_¶¶¶¶¶¶____________¶¶¶¶___¶____¶
+//_¶¶_¶_¶_¶¶_¶_¶¶¶¶___________¶¶_¶¶___¶____8
+//__¶8¶¶8_¶¶¶¶_¶_¶¶__________¶¶¶_¶¶___¶___88
+//___8¶_¶¶¶¶¶¶¶¶¶¶__________¶¶¶¶_¶¶¶_______¶
+//____¶¶8_______¶8__________¶_¶¶___________¶
+//___¶8__________¶¶________8¶__¶___________¶¶
+//__¶¶____________¶________8¶__¶____________¶¶
+//_¶8_____8_______8¶¶_______¶________________¶¶
+//_¶____8¶¶¶_______¶¶8______¶_________________¶¶
+//_¶____¶__¶_______8¶¶¶¶¶¶¶8¶8________________8¶¶
+//_¶__¶¶¶¶¶¶_______¶¶____¶¶¶¶8¶¶¶¶8_____________¶8
+//_¶__¶8¶¶¶________¶¶____________¶¶¶¶___________¶¶
+//_¶__¶¶¶¶¶_______¶¶_______________8¶8___________¶¶
+//_¶8__8___¶__¶__8¶_________________8¶¶___________¶¶
+//_¶¶¶¶¶¶¶¶¶8__8¶¶¶___________________¶¶__________¶¶
+//___¶¶¶¶_¶¶_8¶¶¶¶_____________________¶¶_________¶¶
+//___8¶¶¶¶¶8¶¶¶¶¶8______________________¶8________¶¶
+//____¶¶¶1¶8¶_¶¶_________8¶______________¶¶_______¶¶
+//____¶11¶¶¶_____________¶¶_______________88______¶¶
+//____¶11¶¶¶¶¶¶¶________¶¶________________¶¶_____¶¶
+//____¶111¶8¶¶¶¶¶8¶¶¶¶¶¶¶__________________¶____¶¶¶
+//____¶11111111¶¶¶_____¶___________________¶____¶
+//____¶¶1111118¶_¶¶___8¶___________________¶__8¶¶
+//_____¶¶1111¶¶___¶____8___________________¶¶_¶¶
+//______¶8¶¶¶__¶¶_¶¶¶__¶¶__________________¶8¶¶
+//______________¶¶__¶¶__¶¶_________________¶¶
+//_______________¶¶__¶¶__¶¶_______________¶¶
+//______________¶¶¶¶¶¶¶¶¶¶¶¶___________8¶8¶
+//_____________¶e8¶_______¶h¶8________¶¶¶
+//_____________¶8¶8_____¶¶¶_8¶¶8¶¶8¶¶¶8
+//______________8¶8¶¶¶¶¶8¶¶¶__8¶¶8¶¶8
+//_______________________8¶8¶8¶¶8
+//
 //---------------------------------------
